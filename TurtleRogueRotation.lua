@@ -32,7 +32,7 @@ end
 
 -- Poison check: both weapons
 local function CheckPoison()
-    local hasMain, _, _, chargesMain, hasOff, _, _, chargesOff = GetWeaponEnchantInfo()
+    local hasMain, _, chargesMain, hasOff, _, chargesOff = GetWeaponEnchantInfo()
     local warn = false
 
     if not hasMain or (chargesMain and chargesMain < 15) then
@@ -49,7 +49,11 @@ end
 
 -- Rotation logic
 local function RogueRotation()
-    if not UnitExists("target") or UnitIsDead("target") then return end
+    -- If target is missing or dead, and we are in combat, retarget nearest enemy
+    if (not UnitExists("target") or UnitIsDead("target")) and UnitAffectingCombat("player") then
+        TargetNearestEnemy()
+        if not UnitExists("target") or UnitIsDead("target") then return end
+    end
 
     local cp = GetCP()
     local energy = UnitMana("player")
