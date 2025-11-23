@@ -1,0 +1,4 @@
+## Interface: 11200
+## Title: Turtle Rogue Rotation
+## Notes: Automates rogue rotation with SuperWoW
+TurtleRogueRotation.lua
