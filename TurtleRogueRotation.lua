@@ -185,16 +185,11 @@ local function RogueRotation()
     end
 
     -- P2: Rupture / Eviscerate (TfB Logic)
+    -- If TfB is present, Rupture is prioritized over SnD (P3) as the finisher.
     if hasTfBTalent then
-        -- Rupture if TfB is enabled and it is expired
-        if tasteTime <= 0 and envenomTime > 0 and cp >= maxCP and energy >= 60 then
+        -- Rupture is the preferred finisher when TfB is enabled. Energy check removed.
+        if cp >= maxCP then
             CastSpellByName("Rupture")
-            return
-        end
-    else
-        -- Eviscerate if TfB is disabled and conditions for Rupture are met (high-value dump)
-        if cp >= maxCP and envenomTime > 0 and energy >= 60 then
-            CastSpellByName("Eviscerate")
             return
         end
     end
@@ -205,8 +200,8 @@ local function RogueRotation()
         return
     end
 
-    -- P4: Eviscerate (Damage Dump - ONLY if buffs are UP AND CP are capped)
-    if cp == maxCP and envenomTime > 0 and sndTime > 0 then
+    -- P4: Eviscerate (Damage Dump - ONLY if TfB NOT active, buffs are UP AND CP are capped)
+    if not hasTfBTalent and cp == maxCP and envenomTime > 0 and sndTime > 0 then
         -- TfB check for Eviscerate: must be safe (only relevant if TfB is enabled)
         local isTfBSafe = not hasTfBTalent or (tasteTime > 0)
         if isTfBSafe then
@@ -216,12 +211,20 @@ local function RogueRotation()
     end
 
     -- P5: Eviscerate (Fallback dump if CP is capped and P4 was missed due to other conditions)
-    if cp == maxCP and envenomTime > 0 and sndTime > 0 then
+    if not hasTfBTalent and cp == maxCP and envenomTime > 0 and sndTime > 0 then
         CastSpellByName("Eviscerate")
         return
     end
 
-    -- P6: Generators / Poison Reminder (Noxious Assault)
+    -- P6: Eviscerate if TfB is disabled and conditions for finisher are met (original P2 fallback for non-TfB)
+    if not hasTfBTalent then
+        if cp >= maxCP and envenomTime > 0 and energy >= 60 then
+            CastSpellByName("Eviscerate")
+            return
+        end
+    end
+
+    -- P7: Generators / Poison Reminder (Noxious Assault)
     if cp < maxCP and energy >= 45 then
         CastSpellByName("Noxious Assault")
         return
@@ -255,7 +258,7 @@ local function BackstabRotation()
     -- P2: Rupture / Eviscerate (TfB Logic)
     if hasTfBTalent then
         -- P2a: INITIAL PULL RUPTURE (3+ CP for quick TfB application)
-        if IsInCombatAndFirstRupturePending and cp >= 3 then
+        if IsInCombatAndFirstRupturePending and cp >= 3 and energy >= 60 then
             CastSpellByName("Rupture")
             IsInCombatAndFirstRupturePending = false -- Turn off initial pull flag
             return
@@ -286,7 +289,7 @@ local function BackstabRotation()
     -- P4: Eviscerate (Damage Dump)
     local isTfBSafe = not hasTfBTalent or (tasteTime >= MIN_SAFE_TASTE_DURATION)
 
-    if cp >= 4 and isTfBSafe and sndTime >= MIN_SAFE_SND_DURATION then
+    if cp >= 3 and isTfBSafe and sndTime >= MIN_SAFE_SND_DURATION then
         CastSpellByName("Eviscerate")
         return
     end
