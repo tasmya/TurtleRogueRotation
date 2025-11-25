@@ -16,6 +16,7 @@ local IsInCombatAndFirstRupturePending = false
 -- TUNED SAFETY WINDOWS (Buffs only cast when expired: <= 0 in RogueRotation)
 local MIN_SAFE_TASTE_DURATION = 5
 local MIN_SAFE_SND_DURATION = 2
+local RUPTURE_EMERGENCY_TIME = 2 -- NEW: Envenom expiry window for emergency Rupture
 
 -- Buff Icon Textures
 local TRACKED_BUFF_ICONS = {
@@ -184,23 +185,37 @@ local function RogueRotation()
         return
     end
 
-    -- P2: Rupture / Eviscerate (TfB Logic)
-    -- If TfB is present, Rupture is prioritized over SnD (P3) as the finisher.
-    if hasTfBTalent then
-        -- Rupture is the preferred finisher when TfB is enabled. Energy check removed.
-        if cp >= maxCP then
-            CastSpellByName("Rupture")
+    -- P2 (NEW): EMERGENCY RUPTURE if Envenom is dropping (TfB Priority)
+    if hasTfBTalent and envenomTime > 0 and envenomTime <= RUPTURE_EMERGENCY_TIME and cp >= 4 then
+        CastSpellByName("Rupture")
+        return
+    end
+
+    -- P3: Rupture (TfB High CP Dump) / Eviscerate (Non-TfB High CP Dump)
+
+    -- TfB: Rupture is the preferred finisher when TfB is enabled (Prio over SnD)
+    if hasTfBTalent and cp >= maxCP then
+        CastSpellByName("Rupture")
+        return
+    end
+
+    -- Non-TfB: Eviscerate high value dump
+    if not hasTfBTalent then
+        if cp >= maxCP and envenomTime > 0 and energy >= 60 then
+            CastSpellByName("Eviscerate")
             return
         end
     end
 
-    -- P3: Slice and Dice Refresh: Cast only if expired
+
+    -- P4: Slice and Dice Refresh: Cast only if expired
+    -- Note: This is now lower priority than the TfB Rupture dump (P3) as requested
     if envenomTime > 0 and sndTime <= 0 and cp >= 1 then
         CastSpellByName("Slice and Dice")
         return
     end
 
-    -- P4: Eviscerate (Damage Dump - ONLY if TfB NOT active, buffs are UP AND CP are capped)
+    -- P5: Eviscerate (Damage Dump - ONLY if TfB NOT active, buffs are UP AND CP are capped)
     if not hasTfBTalent and cp == maxCP and envenomTime > 0 and sndTime > 0 then
         -- TfB check for Eviscerate: must be safe (only relevant if TfB is enabled)
         local isTfBSafe = not hasTfBTalent or (tasteTime > 0)
@@ -210,18 +225,10 @@ local function RogueRotation()
         end
     end
 
-    -- P5: Eviscerate (Fallback dump if CP is capped and P4 was missed due to other conditions)
+    -- P6: Eviscerate (Fallback dump if CP is capped and P4 was missed due to other conditions)
     if not hasTfBTalent and cp == maxCP and envenomTime > 0 and sndTime > 0 then
         CastSpellByName("Eviscerate")
         return
-    end
-
-    -- P6: Eviscerate if TfB is disabled and conditions for finisher are met (original P2 fallback for non-TfB)
-    if not hasTfBTalent then
-        if cp >= maxCP and envenomTime > 0 and energy >= 60 then
-            CastSpellByName("Eviscerate")
-            return
-        end
     end
 
     -- P7: Generators / Poison Reminder (Noxious Assault)
