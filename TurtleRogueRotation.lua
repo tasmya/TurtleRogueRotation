@@ -16,7 +16,8 @@ local IsInCombatAndFirstRupturePending = false
 -- TUNED SAFETY WINDOWS (Buffs only cast when expired: <= 0 in RogueRotation)
 local MIN_SAFE_TASTE_DURATION = 5
 local MIN_SAFE_SND_DURATION = 2
-local RUPTURE_EMERGENCY_TIME = 2 -- NEW: Envenom expiry window for emergency Rupture
+local RUPTURE_EMERGENCY_TIME = 2 -- Envenom expiry window for emergency Rupture
+local TfB_WAIT_BUFFER = 0.5 -- Time buffer (seconds) to wait beyond tasteTime for safe clip
 
 -- Buff Icon Textures
 local TRACKED_BUFF_ICONS = {
@@ -39,36 +40,34 @@ local f = CreateFrame("Frame")
 -- 2. HELPERS ⏱️
 -- ====================================================================
 
--- Talent Check Function: Performs the check and prints the debug if the rank changes.
+-- Talent Check Function: Only checks for Taste for Blood (TfB) now.
 local function InitializeTalentRank()
-    local targetTalentName = "Taste for Blood"
-    local currentRank = 0
+    local targetTfB = "Taste for Blood"
+    local currentTfBRank = 0
 
-    -- Iterate through all three talent tabs to find the current rank
+    -- Iterate through all three talent tabs to find the current ranks
     for tab = 1, 3 do
         for index = 1, 32 do
             local name, _, rank = GetTalentInfo(tab, index)
-            if name == targetTalentName and rank and rank > 0 then
-                currentRank = rank
-                break
+            if rank and rank > 0 then
+                if name == targetTfB then
+                    currentTfBRank = rank
+                end
             end
         end
     end
 
-    -- Check if the rank has changed (or if it's the very first run)
-    if currentRank ~= LAST_CHECKED_TASTE_FOR_BLOOD_RANK then
-        TASTE_FOR_BLOOD_RANK = currentRank
-
-        -- Print NEW DEBUG OUTPUT (as requested)
+    -- Update TfB Rank
+    if currentTfBRank ~= LAST_CHECKED_TASTE_FOR_BLOOD_RANK then
+        TASTE_FOR_BLOOD_RANK = currentTfBRank
         local debugMsg
         if TASTE_FOR_BLOOD_RANK > 0 then
-            debugMsg = string.format("|cff00aaff[DEBUG] Talent Check Update: '%s' Rank %d detected. TfB logic ENABLED.|r", targetTalentName, TASTE_FOR_BLOOD_RANK)
+            debugMsg = string.format("|cff00aaff[DEBUG] Talent Check Update: '%s' Rank %d detected. TfB logic ENABLED.|r", targetTfB, TASTE_FOR_BLOOD_RANK)
         else
-            debugMsg = string.format("|cff00aaff[DEBUG] Talent Check Update: '%s' NOT detected. Eviscerate logic ENABLED.|r", targetTalentName)
+            debugMsg = string.format("|cff00aaff[DEBUG] Talent Check Update: '%s' NOT detected. Eviscerate logic ENABLED.|r", targetTfB)
         end
         DEFAULT_CHAT_FRAME:AddMessage(debugMsg)
-
-        LAST_CHECKED_TASTE_FOR_BLOOD_RANK = currentRank
+        LAST_CHECKED_TASTE_FOR_BLOOD_RANK = currentTfBRank
     end
 end
 
@@ -170,6 +169,7 @@ local function RogueRotation()
     local cp = GetCP()
     local energy = UnitMana("player")
     local hasTfBTalent = HasTasteForBloodTalent()
+    local currentMaxEnergy = UnitManaMax("player") -- CORRECT MAX ENERGY CHECK
 
     StartOrContinueAttack()
 
@@ -179,13 +179,13 @@ local function RogueRotation()
 
     local maxCP = 5
 
-    -- P1: Envenom: Cast only if expired
-    if envenomTime <= 0 and cp >= 2 then
+    -- P1: Envenom: Cast only if expired (cp <= 4 constraint)
+    if envenomTime <= 0 and cp >= 2 and cp <= 4 then
         CastSpellByName("Envenom")
         return
     end
 
-    -- P2 (NEW): EMERGENCY RUPTURE if Envenom is dropping (TfB Priority)
+    -- P2: EMERGENCY RUPTURE if Envenom is dropping (TfB Priority)
     if hasTfBTalent and envenomTime > 0 and envenomTime <= RUPTURE_EMERGENCY_TIME and cp >= 4 then
         CastSpellByName("Rupture")
         return
@@ -193,8 +193,26 @@ local function RogueRotation()
 
     -- P3: Rupture (TfB High CP Dump) / Eviscerate (Non-TfB High CP Dump)
 
-    -- TfB: Rupture is the preferred finisher when TfB is enabled (Prio over SnD)
+    -- TfB: Rupture is the preferred finisher when TfB is enabled (Prio over SnD).
     if hasTfBTalent and cp >= maxCP then
+        -- ENERGY-SAVING CHECK FOR TfB CLIP:
+        if tasteTime > 0 then
+            -- Time in seconds until energy hits the DYNAMIC MAX ENERGY (assuming 10 energy/sec)
+            local timeToMaxEnergy = (currentMaxEnergy - energy) / 10
+            -- Time we want to wait before casting Rupture to avoid clipping TfB
+            local requiredWaitTime = tasteTime + TfB_WAIT_BUFFER
+
+            -- If we will hit max energy BEFORE TfB expires, we must cast Rupture immediately.
+            if timeToMaxEnergy < requiredWaitTime then
+                CastSpellByName("Rupture")
+                return
+            end
+
+            -- Otherwise (if we can wait safely without energy cap), return to continue generating energy.
+            return
+        end
+
+        -- If tasteTime is <= 0 (or not applicable), cast Rupture normally at max CP
         CastSpellByName("Rupture")
         return
     end
@@ -208,9 +226,8 @@ local function RogueRotation()
     end
 
 
-    -- P4: Slice and Dice Refresh: Cast only if expired
-    -- Note: This is now lower priority than the TfB Rupture dump (P3) as requested
-    if envenomTime > 0 and sndTime <= 0 and cp >= 1 then
+    -- P4: Slice and Dice Refresh: Cast only if expired (cp <= 3 constraint)
+    if envenomTime > 0 and sndTime <= 0 and cp >= 1 and cp <= 3 then
         CastSpellByName("Slice and Dice")
         return
     end
