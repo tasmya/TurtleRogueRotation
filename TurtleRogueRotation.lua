@@ -54,11 +54,12 @@ local function print(text, name, r, g, b, frame, delay)
     end
 end
 
--- Function to locate the main attack spell slot (typically in the 12-72 range)
+-- Function to locate the main attack spell slot
 local function findAttackSpell()
     AtkSpell = nil -- Reset in case of re-scan
-    -- Scan the main action bar slots (12-72 is often a safe range for searching)
-    for AtkSlot = 1, NUM_ACTIONBAR_BUTTONS + NUM_ACTIONBAR_BUTTONS do
+
+    -- Expanded search range to cover all potential action bar slots (up to 108)
+    for AtkSlot = 1, 108 do
         if IsAttackAction(AtkSlot) then
             AtkSpell = AtkSlot
             return
@@ -72,21 +73,33 @@ local function startAttack()
         findAttackSpell()
     end
 
-    if AtkSpell and not IsCurrentAction(AtkSpell) then
-        UseAction(AtkSpell)
+    -- DEFENSIVE CHECK: Ensure AtkSpell is found and is a valid number before API calls
+    if AtkSpell and type(AtkSpell) == "number" then
+        if not IsCurrentAction(AtkSpell) then
+            UseAction(AtkSpell)
+        end
     end
 end
 
 -- Non-toggling attack stop: calls the attack action if it IS currently active
 local function stopAttack()
-    if AtkSpell and IsCurrentAction(AtkSpell) then
-        UseAction(AtkSpell)
+    -- DEFENSIVE CHECK: Ensure AtkSpell is found and is a valid number before API calls
+    if AtkSpell and type(AtkSpell) == "number" then
+        if IsCurrentAction(AtkSpell) then
+            UseAction(AtkSpell)
+        end
     end
 end
 
 -- The function that is called from the rotation
 local function StartOrContinueAttack()
+    -- 1. Attempt to use the robust action slot logic
     startAttack()
+
+    -- 2. Redundancy check (Fallback): If we have a target and are not currently attacking, force the attack via API.
+    if UnitExists("target") and UnitCanAttack("player", "target") and (not AtkSpell or not IsCurrentAction(AtkSpell)) then
+        AttackTarget()
+    end
 end
 
 -- ====================================================================
@@ -204,7 +217,7 @@ local function RogueRotation()
     InitializeTalentRank()
     CheckPoison()
 
-    if (not UnitExists("target") or UnitIsDead("target")) and UnitAffectingCombat("player") then
+    if (not UnitExists("target") or UnitIsDead("target")) then
         TargetNearestEnemy()
         if not UnitExists("target") or UnitIsDead("target") then return end
     end
@@ -214,7 +227,7 @@ local function RogueRotation()
     local hasTfBTalent = HasTasteForBloodTalent()
     local currentMaxEnergy = UnitManaMax("player")
 
-    StartOrContinueAttack() -- Calls the reliable startAttack function
+    StartOrContinueAttack() -- Calls the reliable startAttack function (now includes fallback)
 
     local envenomTime = GetBuffRemaining("Envenom")
     local tasteTime = GetBuffRemaining("Taste for Blood")
@@ -292,7 +305,7 @@ local function RogueRotation()
     end
 
     -- P7: Generators / Poison Reminder (Noxious Assault)
-    if cp < maxCP and energy >= 45 then
+    if cp < maxCP and energy >= 40 then
         CastSpellByName("Noxious Assault")
         return
     end
@@ -304,7 +317,7 @@ local function BackstabRotation()
     InitializeTalentRank()
     CheckPoison()
 
-    if (not UnitExists("target") or UnitIsDead("target")) and UnitAffectingCombat("player") then
+    if (not UnitExists("target") or UnitIsDead("target")) then
         TargetNearestEnemy()
         if not UnitExists("target") or UnitIsDead("target") then return end
     end
@@ -313,7 +326,7 @@ local function BackstabRotation()
     local cp = GetCP()
     local energy = UnitMana("player")
 
-    StartOrContinueAttack() -- Conditional attack start
+    StartOrContinueAttack() -- Conditional attack start (now includes fallback)
 
     local tasteTime = GetBuffRemaining("Taste for Blood")
     local sndTime = GetBuffRemaining("Slice and Dice")
