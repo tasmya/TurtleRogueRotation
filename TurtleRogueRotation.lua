@@ -1,6 +1,6 @@
 -- TurtleRogueRotation.lua
--- SuperWoW-enabled addon for Turtle WoW 1.12
 -- Automates rogue rotation via /RogueRotation and /BackstabRotation macros
+-- Incorporates a robust, non-toggling attack logic using action slots.
 
 -- ====================================================================
 -- 1. CONFIGURATION AND GLOBAL STATE 🛠️
@@ -33,11 +33,64 @@ local KnownBuffDurations = {
     ["Envenom"] = 0,
 }
 
+-- Attack Logic Variables
+local AtkSpell -- The action slot number for the main attack spell
+
 -- Frame is kept for compatibility
 local f = CreateFrame("Frame")
 
 -- ====================================================================
--- 2. HELPERS ⏱️
+-- 2. ATTACK LOGIC (Based on User's Reliable Method) ⚔️
+-- ====================================================================
+
+local function print(text, name, r, g, b, frame, delay)
+    if not text or string.len(text) == 0 then
+        text = " "
+    end
+    if not name or name == AceConsole then
+        (frame or DEFAULT_CHAT_FRAME):AddMessage(text, r, g, b, nil, delay or 5)
+    else
+        (frame or DEFAULT_CHAT_FRAME):AddMessage("|cffffff78" .. tostring(name) .. ":|r " .. text, r, g, b, nil, delay or 5)
+    end
+end
+
+-- Function to locate the main attack spell slot (typically in the 12-72 range)
+local function findAttackSpell()
+    AtkSpell = nil -- Reset in case of re-scan
+    -- Scan the main action bar slots (12-72 is often a safe range for searching)
+    for AtkSlot = 1, NUM_ACTIONBAR_BUTTONS + NUM_ACTIONBAR_BUTTONS do
+        if IsAttackAction(AtkSlot) then
+            AtkSpell = AtkSlot
+            return
+        end
+    end
+end
+
+-- Non-toggling attack start: calls the attack action if it's not currently active
+local function startAttack()
+    if not AtkSpell then
+        findAttackSpell()
+    end
+
+    if AtkSpell and not IsCurrentAction(AtkSpell) then
+        UseAction(AtkSpell)
+    end
+end
+
+-- Non-toggling attack stop: calls the attack action if it IS currently active
+local function stopAttack()
+    if AtkSpell and IsCurrentAction(AtkSpell) then
+        UseAction(AtkSpell)
+    end
+end
+
+-- The function that is called from the rotation
+local function StartOrContinueAttack()
+    startAttack()
+end
+
+-- ====================================================================
+-- 3. HELPERS ⏱️
 -- ====================================================================
 
 -- Talent Check Function: Only checks for Taste for Blood (TfB) now.
@@ -106,18 +159,8 @@ local function GetCP()
     return _G.GetComboPoints("player", "target") or 0
 end
 
-local function HasBuff(unit, buffName)
-    return GetBuffRemaining(buffName) > 0
-end
-
-local function StartOrContinueAttack()
-    if not (UnitIsUnit("target", "player") and UnitAffectingCombat("player")) then
-        AttackTarget()
-    end
-end
-
 -- ====================================================================
--- 3. UTILITIES (Poison Check & Combat Events) 🐍
+-- 4. UTILITIES (Poison Check & Combat Events) 🐍
 -- ====================================================================
 
 local function CheckPoison()
@@ -139,22 +182,22 @@ end
 -- Event Handler: Reset combat state when entering/leaving combat
 f:RegisterEvent("PLAYER_ENTER_COMBAT")
 f:RegisterEvent("PLAYER_LEAVE_COMBAT")
+f:RegisterEvent("ADDON_LOADED")
 f:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_ENTER_COMBAT" then
         IsInCombatAndFirstRupturePending = true
     elseif event == "PLAYER_LEAVE_COMBAT" then
         IsInCombatAndFirstRupturePending = false
-    end
-
-    -- Keep the ADDON_LOADED logic for initialization
-    if event == "ADDON_LOADED" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff88TurtleRogueRotation loaded. Commands: /rr, /bs. Talent check runs per macro press.|r")
+    elseif event == "ADDON_LOADED" then
+        -- Initialize attack action slot on load
+        findAttackSpell()
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff88TurtleRogueRotation loaded. Attack slot: " .. tostring(AtkSpell or "NIL") .. ". Commands: /rr, /bs, /startattack, /stopattack.|r")
     end
 end)
 
 
 -- ====================================================================
--- 4. ROTATIONS 🔪
+-- 5. ROTATIONS 🔪
 -- ====================================================================
 
 local function RogueRotation()
@@ -169,9 +212,9 @@ local function RogueRotation()
     local cp = GetCP()
     local energy = UnitMana("player")
     local hasTfBTalent = HasTasteForBloodTalent()
-    local currentMaxEnergy = UnitManaMax("player") -- CORRECT MAX ENERGY CHECK
+    local currentMaxEnergy = UnitManaMax("player")
 
-    StartOrContinueAttack()
+    StartOrContinueAttack() -- Calls the reliable startAttack function
 
     local envenomTime = GetBuffRemaining("Envenom")
     local tasteTime = GetBuffRemaining("Taste for Blood")
@@ -255,6 +298,8 @@ local function RogueRotation()
     end
 end
 
+---
+
 local function BackstabRotation()
     InitializeTalentRank()
     CheckPoison()
@@ -268,7 +313,7 @@ local function BackstabRotation()
     local cp = GetCP()
     local energy = UnitMana("player")
 
-    StartOrContinueAttack()
+    StartOrContinueAttack() -- Conditional attack start
 
     local tasteTime = GetBuffRemaining("Taste for Blood")
     local sndTime = GetBuffRemaining("Slice and Dice")
@@ -341,7 +386,7 @@ local function BackstabRotation()
 end
 
 -- ====================================================================
--- 5. SLASH COMMANDS
+-- 6. ROTATION SLASH COMMANDS
 -- ====================================================================
 
 SlashCmdList["ROGUEROTATION"] = function(msg) RogueRotation() end
@@ -351,3 +396,29 @@ SLASH_ROGUEROTATION2 = "/rr"
 SlashCmdList["BACKSTABROTATION"] = function(msg) BackstabRotation() end
 SLASH_BACKSTABROTATION1 = "/BackstabRotation"
 SLASH_BACKSTABROTATION2 = "/bs"
+
+-- ====================================================================
+-- 7. ATTACK UTILITY SLASH COMMANDS (From User Input)
+-- ====================================================================
+
+-- The attack logic initialization now happens on ADDON_LOADED event
+SLASH_FINDATTACK1 = "/findattack"
+SLASH_STARTATTACK1 = "/startattack"
+SLASH_STOPATTACK1 = "/stopattack"
+
+function SlashCmdList.FINDATTACK(msg, editbox)
+    findAttackSpell()
+    if AtkSpell == nil then
+        print("Attack skill not found", "ATTACK FINDER", 1, 0.2, 0.2)
+    else
+        print("Found Attack skill at slot |cff1eff00".. tostring(AtkSpell) .. "|r", "ATTACK FINDER", 0.5, 0.8, 1)
+    end
+end
+
+function SlashCmdList.STARTATTACK(msg, editbox)
+    startAttack()
+end
+
+function SlashCmdList.STOPATTACK(msg, editbox)
+    stopAttack()
+end
