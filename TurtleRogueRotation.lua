@@ -434,6 +434,67 @@ local function BackstabRotation()
 end
 
 -- ====================================================================
+-- 11B. HYBRID ROTATION
+-- ====================================================================
+
+local function HybridRotation()
+    CheckPoison()
+
+    if not UnitExists("target") or UnitIsDead("target") then
+        TargetNearestEnemy()
+        if not UnitExists("target") or UnitIsDead("target") then return end
+    end
+    StartOrContinueAttack()
+
+    local cp     = GetComboPoints("player", "target") or 0
+    local energy = UnitMana("player") or 0
+
+    UpdateBuffDurations()
+    local envTime = BuffDurations["Envenom"] or 0
+    local sndTime = BuffDurations["Slice and Dice"] or 0
+
+    -- 1 & 2: Maintain Envenom/SnD at 1-2 CP if they are about to expire (< 1s)
+    if cp >= 1 and cp <= 2 then
+        if envTime < 1 and energy >= GetSpellCost("Envenom") then
+            CastSpellByName("Envenom"); return
+        end
+        if sndTime < 1 and energy >= GetSpellCost("Slice and Dice") then
+            CastSpellByName("Slice and Dice"); return
+        end
+    end
+
+    -- 3 & 4: Eviscerate at 2+ CP if a buff is missing (< 1s) to bridge gaps
+    if cp >= 2 then
+        if envTime < 1 and energy >= GetSpellCost("Eviscerate") then
+            CastSpellByName("Eviscerate"); return
+        end
+        if sndTime < 1 and energy >= GetSpellCost("Eviscerate") then
+            CastSpellByName("Eviscerate"); return
+        end
+    end
+
+    -- 5: Eviscerate at 5 CP if both buffs are active (>= 1s)
+    if cp == 5 and envTime >= 1 and sndTime >= 1 then
+        if energy >= GetSpellCost("Eviscerate") then
+            CastSpellByName("Eviscerate"); return
+        end
+    end
+
+    -- 6: Surprise Attack (Reactive)
+    -- We use the same logic as BackstabRotation: check energy and cast
+    if energy >= GetSpellCost("Surprise Attack") then
+        -- Note: SuperWoW/NamPower usually handles the "IsUsable" check via CastSpellByName
+        CastSpellByName("Surprise Attack")
+        -- We don't return here so it can fallback to Sinister Strike if Surprise Attack isn't ready
+    end
+
+    -- 7: Sinister Strike (Always/Builder)
+    if cp < 5 and energy >= GetSpellCost("Sinister Strike") then
+        CastSpellByName("Sinister Strike"); return
+    end
+end
+
+-- ====================================================================
 -- 12. DEBUG
 -- ====================================================================
 
@@ -470,6 +531,10 @@ SLASH_ROGUEROTATION2 = "/rr"
 SlashCmdList["BACKSTABROTATION"] = function() BackstabRotation() end
 SLASH_BACKSTABROTATION1 = "/BackstabRotation"
 SLASH_BACKSTABROTATION2 = "/bs"
+
+SlashCmdList["HYBRIDROTA"] = function() HybridRotation() end
+SLASH_HYBRIDROTA1 = "/HybridRota"
+SLASH_HYBRIDROTA2 = "/hr"
 
 SlashCmdList["FINDATTACK"] = function() findAttackSpell() end
 SLASH_FINDATTACK1 = "/findattack"
